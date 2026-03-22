@@ -1,0 +1,14 @@
+Archivo utilizado para mantener historial de cambios realizados.
+
+Idea 1: Usar carpeta para Miner, otra para Visualizer.
+¿Porqué?: Ya que hay que dockerizar ambos componentes de manera separada, suena ideal y correcto tener dos carpetas que los separen.
+Además, es uno de los requisitos base de la entrega de todos modos.
+Se me ocurre que el miner será trabajo backend, con una API que el visualizer consumirá para ir actualizando los datos necesarios
+a medida que se construyan; y el visualizer será trabajo frontend, hecho en una página en algún formato, probablemente combinación de HTML, JS y/o Vue,
+en el cual se vean los datos obtenidos del miner a medida que sean actualizados.
+Todo esto se basa en lo que entiendo de los requisitos de la tarea, combinado con conocimientos previos que tengo de metodologías de trabajo similares.
+
+Idea 2: Usar algún servicio de middleman/intermediario.
+¿Porqué?: Una de las cosas que recuerdo ser mencionadas durante la clase es la de no usar base de datos, por lo que en algún lado tiene que
+almacenarse la información recopilada por el Miner para poder ser utilizada por el Visualizer. Desconozco algún programa, servicio o librería para
+este trabajo, pero sospecho que voy a necesitarlo para poder construir el puente entre ambos.
