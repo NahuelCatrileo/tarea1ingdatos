@@ -1,0 +1,547 @@
+Necesito un botón en la página que detenga la actividad del miner.
+
+Entiendo perfectamente. Si estás integrando un minero en la web (como los de JavaScript), es fundamental ofrecerle al usuario el control total sobre los recursos de su CPU. No hay nada más frustrante que una pestaña que "secuestra" el rendimiento de la computadora sin permiso o sin una forma clara de pararlo.
+
+Para lograr esto, necesitas un pequeño puente entre tu interfaz (HTML/JS) y la instancia del minero.
+
+1. Estructura básica del botón
+Primero, definimos un botón sencillo en tu HTML. Podemos usar un ID para manipularlo fácilmente.
+
+HTML
+<button id="miner-control" onclick="toggleMiner()">Detener Minero</button>
+<p>Estado: <span id="miner-status">Ejecutando</span></p>
+2. La lógica de control (JavaScript)
+Dependiendo de la librería que uses (CoinHive era la clásica, pero hoy existen alternativas como CoinIMP o implementaciones propias en WebAssembly), la lógica suele seguir este patrón:
+
+JavaScript
+// Supongamos que 'miner' es tu instancia global del minero
+let isRunning = true;
+
+function toggleMiner() {
+    const btn = document.getElementById('miner-control');
+    const statusText = document.getElementById('miner-status');
+
+    if (isRunning) {
+        // Detiene la actividad del minero
+        miner.stop(); 
+        
+        // Actualiza la interfaz
+        btn.innerText = "Reanudar Minero";
+        btn.style.backgroundColor = "#4CAF50"; // Verde para reanudar
+        statusText.innerText = "Detenido";
+        isRunning = false;
+        
+        console.log("Minería pausada por el usuario.");
+    } else {
+        // Inicia o reanuda la actividad
+        miner.start();
+        
+        // Actualiza la interfaz
+        btn.innerText = "Detener Minero";
+        btn.style.backgroundColor = "#f44336"; // Rojo para detener
+        statusText.innerText = "Ejecutando";
+        isRunning = true;
+        
+        console.log("Minería reanudada.");
+    }
+}
+Consideraciones de UX y Ética
+Ajuste de Intensidad: En lugar de solo "encendido/apagado", podrías añadir un control para el throttle (aceleración). Esto permite al usuario decidir si quiere que el minero use el 10% o el 80% de su procesador.
+
+Transparencia: Muchos navegadores y extensiones de seguridad bloquean scripts de minería automáticamente si no hay un consentimiento explícito. Asegúrate de que el minero no arranque por defecto (autostart) sin que el usuario lo sepa.
+
+Nota técnica: Si estás usando un minero que corre en un Web Worker, el comando miner.stop() es vital para liberar el hilo de ejecución y que el ventilador de la laptop del usuario deje de sonar como una turbina de avión.
+
+¿Te gustaría que te ayude a diseñar un control deslizante (slider) para que el usuario pueda limitar el uso de CPU en lugar de solo apagarlo?
+
+Tú dijiste
+Cómo aplico ese botón en el main.py del Visualizer que me otorgaste?:
+
+
+
+import streamlit as st
+
+import redis
+
+import os
+
+import pandas as pd
+
+
+
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+
+r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+
+
+
+st.set_page_config(page_title="GitHub Miner", layout="wide")
+
+st.title("📊 GitHub Word Miner - Real Time")
+
+
+
+top_n = st.sidebar.slider("Ver Top N palabras", 5, 50, 10)
+
+refresh_rate = st.sidebar.selectbox("Refresco (segundos)", [2, 5, 10], index=0)
+
+
+
+data = r.zrevrange("word_ranking", 0, top_n - 1, withscores=True)
+
+
+
+if data:
+
+    df = pd.DataFrame(data, columns=["Palabra", "Frecuencia"])
+
+   
+
+    st.subheader(f"Top {top_n} palabras encontradas")
+
+    st.bar_chart(df.set_index("Palabra"))
+
+   
+
+    st.table(df)
+
+else:
+
+    st.info("Esperando datos del Miner... Asegúrate de que el contenedor 'miner' esté corriendo.")
+
+
+
+time_to_wait = refresh_rate * 1000
+
+st.empty()
+
+st.fragment(run_every=refresh_rate)(lambda: st.rerun())()
+
+Para implementar este botón en tu visualizador de Streamlit, la mejor forma es utilizar una "bandera" (flag) en Redis. Dado que el Miner y el Visualizer son procesos separados (posiblemente en contenedores distintos), el Visualizer no puede "matar" el proceso del Miner directamente, pero puede enviarle una señal a través de la base de datos compartida.
+
+Aquí tienes cómo integrar el botón de control en tu main.py:
+
+El Código Actualizado
+Python
+import streamlit as st
+import redis
+import os
+import pandas as pd
+
+# Configuración de Redis
+REDIS_HOST = os.getenv("REDIS_HOST", "redis") 
+r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+
+st.set_page_config(page_title="GitHub Miner", layout="wide")
+st.title("📊 GitHub Word Miner - Real Time")
+
+# --- SECCIÓN DE CONTROL EN EL SIDEBAR ---
+st.sidebar.header("Configuración y Control")
+
+# 1. Verificar el estado actual en Redis (por defecto 'running' si no existe)
+current_status = r.get("miner_status") or "running"
+
+# 2. Botón dinámico para detener/reanudar
+if current_status == "running":
+    if st.sidebar.button("🛑 Detener Actividad del Miner", use_container_width=True):
+        r.set("miner_status", "stopped")
+        st.rerun()
+else:
+    if st.sidebar.button("▶️ Reanudar Actividad del Miner", use_container_width=True, type="primary"):
+        r.set("miner_status", "running")
+        st.rerun()
+
+# Mostrar estado visualmente
+status_color = "green" if current_status == "running" else "red"
+st.sidebar.markdown(f"Estado del Miner: :{status_color}[{current_status.upper()}]")
+
+# ---------------------------------------
+
+top_n = st.sidebar.slider("Ver Top N palabras", 5, 50, 10)
+refresh_rate = st.sidebar.selectbox("Refresco (segundos)", [2, 5, 10], index=0)
+
+data = r.zrevrange("word_ranking", 0, top_n - 1, withscores=True)
+
+if data:
+    df = pd.DataFrame(data, columns=["Palabra", "Frecuencia"])
+    st.subheader(f"Top {top_n} palabras encontradas")
+    st.bar_chart(df.set_index("Palabra"))
+    st.table(df)
+else:
+    st.info("Esperando datos del Miner... Asegúrate de que el contenedor 'miner' esté corriendo.")
+
+# Lógica de refresco automático
+st.fragment(run_every=refresh_rate)(lambda: st.rerun())()
+¿Cómo funciona esta integración?
+Estado Persistente: Usamos r.set("miner_status", "...") en Redis. Esto es crucial porque si cierras la pestaña del navegador, el Miner debe saber que tiene que seguir detenido (o corriendo) según la última orden.
+
+Interfaz Reactiva: El botón cambia de color y texto dependiendo de lo que lea de Redis. Si el estado es stopped, el botón aparece resaltado para reanudar.
+
+El "Contrato" con el Miner: Para que esto funcione realmente, debes modificar ligeramente la lógica de tu script de Minería (el que procesa los datos de GitHub).
+
+En el bucle principal de tu Miner, deberías añadir una comprobación simple:
+
+Python
+# Ejemplo de lógica para el script del Miner (no el Visualizer)
+while True:
+    status = r.get("miner_status")
+    if status == "stopped":
+        time.sleep(5) # Esperar un poco antes de volver a preguntar
+        continue 
+    
+    # ... aquí va tu lógica actual de minar GitHub ...
+Un detalle sobre el rendimiento
+He movido el botón al sidebar para mantener limpia el área de las gráficas, pero puedes ponerlo en el cuerpo principal simplemente quitando el .sidebar del código.
+
+¿Te gustaría que te ayude con el código necesario para que el contenedor del Miner interprete esta señal y se ponga en pausa correctamente?
+
+Tú dijiste
+Existe un problema al hacer commit en el repositorio:
+
+
+
+remote: error: GH013: Repository rule violations found for refs/heads/main.        
+
+remote: 
+
+remote: - GITHUB PUSH PROTECTION        
+
+remote:   â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”        
+
+remote:     Resolve the following violations before pushing again        
+
+remote: 
+
+remote:     - Push cannot contain secrets        
+
+remote: 
+
+remote:             
+
+remote:      (?) Learn how to resolve a blocked push        
+
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push        
+
+remote:             
+
+remote:             
+
+remote:       â€”â€” GitHub Personal Access Token â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”        
+
+remote:        locations:        
+
+remote:          - commit: a0d3af82ab29682b859ab49e148e70b4666ed5b3        
+
+remote:            path: docker-compose.yml:11        
+
+remote:             
+
+remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.        
+
+remote:        https://github.com/NahuelCatrileo/tarea1ingdatos/security/secret-scanning/unblock-secret/3BOoH97PHdE19ZJ4zH7MeooUUfZ        
+
+remote:             
+
+remote: 
+
+remote: 
+
+Pushing to https://github.com/NahuelCatrileo/tarea1ingdatos.git
+
+To https://github.com/NahuelCatrileo/tarea1ingdatos.git
+
+ ! [remote rejected] main -> main (push declined due to repository rule violations)
+
+error: failed to push some refs to 'https://github.com/NahuelCatrileo/tarea1ingdatos.git'
+
+Este es un error de seguridad muy común y, de hecho, GitHub te está haciendo un favor. El "Push Protection" detectó que en tu archivo docker-compose.yml (específicamente en la línea 11) escribiste directamente un GitHub Personal Access Token (PAT).
+
+GitHub bloquea el push porque, si ese token llega al repositorio, cualquier persona con acceso a él podría usar tu cuenta.
+
+Cómo solucionarlo correctamente
+Para arreglarlo sin comprometer tu seguridad, debes usar Variables de Entorno.
+
+1. Limpiar el archivo docker-compose.yml
+Elimina el token real del archivo y usa una referencia. Por ejemplo:
+
+YAML
+services:
+  miner:
+    # ... otras configuraciones ...
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}  # No pongas el token aquí
+2. Crear un archivo .env
+En la misma carpeta donde está tu docker-compose.yml, crea un archivo llamado .env (si no existe) y pon tu token ahí:
+
+Plaintext
+GITHUB_TOKEN=ghp_tu_token_secreto_aqui
+3. ¡Muy importante! Ignorar el .env
+Asegúrate de que tu archivo .gitignore contenga la línea .env para que este archivo nunca se suba a GitHub.
+
+Cómo limpiar el historial de Git
+Como el secreto quedó guardado en un "commit" local, Git intentará subirlo de nuevo aunque lo borres ahora. Tienes dos opciones:
+
+Opción A: Corregir el último commit (Si no has hecho más cambios)
+Si el error está en tu último commit, haz los cambios en el archivo y luego ejecuta:
+
+git add docker-compose.yml
+
+git commit --amend --no-edit
+
+git push
+
+Opción B: Usar el enlace de "bypass" (No recomendado)
+GitHub te dio un enlace en el error (termina en .../unblock-secret/...). Si haces clic ahí, puedes autorizar ese secreto específico para que te deje subirlo. Solo haz esto si es un token de prueba o si realmente no te importa que sea público (aunque nunca es buena idea).
+
+¿Cómo lo aplico al código que ya tenemos?
+En tu main.py del Visualizer o en el script del Miner, cuando llames a la API de GitHub, asegúrate de que el código lea la variable de entorno:
+
+Python
+import os
+token = os.getenv("GITHUB_TOKEN") # Esto leerá lo que pusiste en el .env
+¿Quieres que te ayude a configurar el archivo .gitignore para estar seguro de que no vuelva a pasar?
+
+Tú dijiste
+Incluso al dejar el docker-compose.yml de esta forma:
+
+
+
+services:
+
+  redis:
+
+    image: redis:alpine
+
+    ports:
+
+      - "6379:6379"
+
+
+
+  miner:
+
+    build: ./miner
+
+    environment:
+
+      - REDIS_HOST=redis
+
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+
+    depends_on:
+
+      - redis
+
+
+
+  visualizer:
+
+    build: ./visualizer
+
+    ports:
+
+      - "8501:8501"
+
+    environment:
+
+      - REDIS_HOST=redis
+
+    depends_on:
+
+      - redis
+
+
+
+Me sigue dando errores.
+
+Es frustrante cuando Git parece "recordar" el secreto incluso después de haberlo borrado del archivo. El problema es que Git tiene memoria.
+
+Aunque tu docker-compose.yml ahora esté limpio, el token sigue existiendo en el historial de commits que intentas subir. GitHub escanea todo el paquete que envías (incluyendo versiones anteriores de los archivos en commits pasados) y bloquea el push al encontrar el token en el commit a0d3af8.
+
+Aquí tienes la solución paso a paso para limpiar tu repositorio:
+
+1. Eliminar el rastro del secreto (Amending)
+Si el error está en el commit más reciente que hiciste localmente, debes "reescribir" ese commit para que Git olvide que el token alguna vez estuvo ahí.
+
+Ejecuta estos comandos en tu terminal:
+
+Bash
+# 1. Asegúrate de que tu docker-compose.yml esté guardado con ${GITHUB_TOKEN}
+# 2. Añade el archivo corregido al área de preparación
+git add docker-compose.yml
+
+# 3. Sobrescribe el último commit (esto elimina la versión con el token)
+git commit --amend --no-edit
+
+# 4. Intenta el push de nuevo
+git push
+2. ¿Qué pasa si el secreto está varios commits atrás?
+Si has hecho varios commits después de haber expuesto el token, el comando anterior no bastará. Tendrás que hacer un "Soft Reset" para deshacer los commits pero mantener tus cambios:
+
+Bash
+# Deshace los últimos N commits (cambia el 3 por cuántos hayas hecho con el token)
+# Tus archivos NO se borrarán, solo se "des-comitearán"
+git reset --soft HEAD~3 
+
+# Ahora, con el docker-compose.yml ya corregido, vuelve a comitear todo de una vez
+git add .
+git commit -m "Refactor: setup environment variables and cleanup"
+git push
+3. Configura tu entorno para que funcione
+Para que tu proyecto siga funcionando localmente con ${GITHUB_TOKEN}, necesitas que tu máquina conozca ese valor. Tienes dos formas de hacerlo:
+
+Archivo .env (Recomendado):
+Crea un archivo llamado .env en la raíz de tu proyecto:
+
+Plaintext
+GITHUB_TOKEN=tu_token_aqui
+Docker Compose leerá este archivo automáticamente.
+
+Exportar la variable:
+En tu terminal, antes de ejecutar docker-compose, corre:
+export GITHUB_TOKEN=tu_token_aqui (en Linux/Mac) o $env:GITHUB_TOKEN="tu_token_aqui" (en PowerShell).
+
+Checklist de Seguridad final
+Para que no te vuelva a ocurrir, verifica que tu archivo .gitignore tenga estas líneas:
+
+Plaintext
+# Ignorar tokens y configuraciones locales
+.env
+__pycache__/
+*.pyc
+¿Te funcionó el git commit --amend o necesitas que veamos cómo hacer un rebase más profundo?
+
+Tú dijiste
+Luego de hacer el paso 2, esto ocurre:
+
+
+
+Enumerating objects: 28, done.
+
+Counting objects: 100% (28/28), done.
+
+Delta compression using up to 4 threads
+
+Compressing objects: 100% (21/21), done.
+
+Writing objects: 100% (26/26), 4.05 KiB | 1.01 MiB/s, done.
+
+Total 26 (delta 8), reused 0 (delta 0), pack-reused 0 (from 0)
+
+remote: Resolving deltas: 100% (8/8), completed with 1 local object.
+
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+
+remote:
+
+remote: - GITHUB PUSH PROTECTION
+
+remote:   —————————————————————————————————————————
+
+remote:     Resolve the following violations before pushing again
+
+remote:
+
+remote:     - Push cannot contain secrets
+
+remote:
+
+remote:
+
+remote:      (?) Learn how to resolve a blocked push
+
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-
+
+secret-scanning-and-push-protection/working-with-push-protection-from-the-comman
+
+d-line#resolving-a-blocked-push
+
+remote:
+
+remote:
+
+remote:       —— GitHub Personal Access Token ——————————————————————
+
+remote:        locations:
+
+remote:          - commit: a0d3af82ab29682b859ab49e148e70b4666ed5b3
+
+remote:            path: docker-compose.yml:11
+
+remote:
+
+remote:        (?) To push, remove secret from commit(s) or follow this URL to a
+
+llow the secret.
+
+remote:        https://github.com/NahuelCatrileo/tarea1ingdatos/security/secret-
+
+scanning/unblock-secret/3BOoH97PHdE19ZJ4zH7MeooUUfZ
+
+remote:
+
+remote:
+
+remote:
+
+To https://github.com/NahuelCatrileo/tarea1ingdatos.git
+
+ ! [remote rejected] main -> main (push declined due to repository rule violatio
+
+ns)
+
+error: failed to push some refs to 'https://github.com/NahuelCatrileo/tarea1ingd
+
+atos.git'
+
+El problema persiste porque, aunque hiciste el reset, el commit a0d3af8 sigue existiendo en tu historial local y Git está intentando enviarlo de nuevo. GitHub es muy estricto: si detecta el token en cualquier parte del paquete de datos que estás subiendo (aunque sea un commit viejo o "pisado"), bloqueará todo el push.
+
+Para solucionar esto de raíz, necesitamos eliminar ese commit específico de tu historial.
+
+La solución definitiva: Rebase Interactivo
+Vamos a "reescribir la historia" para borrar ese commit problemático antes de que llegue a GitHub.
+
+Inicia el rebase interactivo:
+Ejecuta este comando para ver los últimos commits (ajusta el número si el error es más antiguo):
+
+Bash
+git rebase -i HEAD~5
+Edita la lista de commits:
+Se abrirá un editor de texto (probablemente nano o vim). Verás una lista de commits que empieza con la palabra pick.
+
+Busca la línea que corresponde al commit a0d3af8.
+
+Cambia la palabra pick por drop (o simplemente borra esa línea).
+
+Guarda y cierra el editor (Ctrl+O, Enter, Ctrl+X en nano; :wq en vim).
+
+Limpia y reintenta:
+Si el rebase se completa sin conflictos, intenta subir los cambios:
+
+Bash
+git push origin main --force
+(Usamos --force porque estamos cambiando la historia del repositorio).
+
+Si el rebase te parece muy complejo: El plan de "borrón y cuenta nueva"
+Si no tienes muchos commits importantes que perder, puedes forzar tu rama local a estar limpia:
+
+Asegúrate de tener tu docker-compose.yml corregido (con ${GITHUB_TOKEN}) y copiado en un lugar seguro fuera de la carpeta por si acaso.
+
+Resetea todo al estado remoto (esto borrará tus commits locales que no se han subido):
+
+Bash
+git reset --hard origin/main
+Vuelve a aplicar el cambio:
+
+Modifica el docker-compose.yml de nuevo con la variable de entorno.
+
+git add docker-compose.yml
+
+git commit -m "feat: use env vars for github token"
+
+git push
+
+¿Por qué sigue fallando?
+Como muestra el diagrama conceptual de Git, aunque tú crees un commit nuevo "limpio", los commits anteriores siguen encadenados por debajo. GitHub escanea toda la cadena. Hasta que no rompas el enlace con el commit a0d3af8 usando rebase o reset --hard, el fantasma del token te seguirá persiguiendo.
+
+¿Te gustaría que te ayude a configurar el archivo .env correctamente para que el Miner funcione una vez que logres hacer el push?
